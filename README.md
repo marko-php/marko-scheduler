@@ -18,9 +18,15 @@ return [
         $schedule->call(function () {
             // Clean up temp files...
         })->daily()->description('Clean temp files');
+
+        $schedule->call(function () {
+            // Import a feed that can outlast its interval...
+        })->everyMinute()->description('Import feed')->withoutOverlapping();
     },
 ];
 ```
+
+Run due tasks from a single cron entry with `marko schedule:run` (exits `1` if any task fails), or in the foreground with `marko schedule:work`.
 
 ## Documentation
 

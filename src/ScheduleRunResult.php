@@ -1,0 +1,19 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Marko\Scheduler;
+
+readonly class ScheduleRunResult
+{
+    public function __construct(
+        public int $executed,
+        public int $failed,
+        public int $skipped,
+    ) {}
+
+    public function hasFailures(): bool
+    {
+        return $this->failed > 0;
+    }
+}

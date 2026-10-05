@@ -6,12 +6,15 @@ namespace Marko\Scheduler;
 
 use Closure;
 use DateTimeInterface;
+use Marko\Scheduler\Exceptions\SchedulerException;
 
 class ScheduledTask
 {
     private string $expression = '* * * * *';
 
     private ?string $description = null;
+
+    private ?int $overlapExpiresAfterMinutes = null;
 
     public function __construct(
         private readonly Closure $callback,
@@ -99,6 +102,50 @@ class ScheduledTask
     public function getDescription(): ?string
     {
         return $this->description;
+    }
+
+    /**
+     * Skip this task while a previous run is still in progress.
+     *
+     * The task must also have a description(), which keys the mutex. A held mutex older than
+     * $expiresAfterMinutes is treated as stale (its holder hung or crashed) and is reclaimed.
+     *
+     * @throws SchedulerException When $expiresAfterMinutes is below 1
+     */
+    public function withoutOverlapping(
+        int $expiresAfterMinutes = 1440,
+    ): self {
+        if ($expiresAfterMinutes < 1) {
+            throw SchedulerException::invalidOverlapExpiry($expiresAfterMinutes);
+        }
+
+        $this->overlapExpiresAfterMinutes = $expiresAfterMinutes;
+
+        return $this;
+    }
+
+    public function preventsOverlapping(): bool
+    {
+        return $this->overlapExpiresAfterMinutes !== null;
+    }
+
+    public function getOverlapExpiresAfterMinutes(): ?int
+    {
+        return $this->overlapExpiresAfterMinutes;
+    }
+
+    /**
+     * Stable identity used to key the overlap mutex.
+     *
+     * @throws SchedulerException When the task has no description
+     */
+    public function mutexName(): string
+    {
+        if ($this->description === null) {
+            throw SchedulerException::overlapRequiresDescription($this->expression);
+        }
+
+        return 'schedule-' . sha1($this->expression . $this->description);
     }
 
     public function getExpression(): string

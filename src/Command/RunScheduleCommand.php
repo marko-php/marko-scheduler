@@ -9,44 +9,27 @@ use Marko\Core\Attributes\Command;
 use Marko\Core\Command\CommandInterface;
 use Marko\Core\Command\Input;
 use Marko\Core\Command\Output;
-use Marko\Scheduler\Schedule;
-use Throwable;
+use Marko\Scheduler\Exceptions\SchedulerException;
+use Marko\Scheduler\ScheduleRunner;
 
 /** @noinspection PhpUnused */
 #[Command(name: 'schedule:run', description: 'Run due scheduled tasks')]
-class RunScheduleCommand implements CommandInterface
+readonly class RunScheduleCommand implements CommandInterface
 {
     public function __construct(
-        private readonly Schedule $schedule,
+        private ScheduleRunner $scheduleRunner,
     ) {}
 
+    /**
+     * @return int 0 when every due task succeeded or was skipped, 1 when any task failed
+     * @throws SchedulerException
+     */
     public function execute(
         Input $input,
         Output $output,
     ): int {
-        $now = new DateTimeImmutable();
-        $dueTasks = $this->schedule->dueTasksAt($now);
+        $result = $this->scheduleRunner->run(new DateTimeImmutable(), $output);
 
-        if ($dueTasks === []) {
-            $output->writeLine('No scheduled tasks are due.');
-
-            return 0;
-        }
-
-        $executed = 0;
-        foreach ($dueTasks as $task) {
-            $description = $task->getDescription() ?? 'Task ' . ($executed + 1);
-            try {
-                $task->run();
-                $output->writeLine("Executed: $description");
-                $executed++;
-            } catch (Throwable $e) {
-                $output->writeLine("Failed: $description - " . $e->getMessage());
-            }
-        }
-
-        $output->writeLine("Executed $executed scheduled tasks.");
-
-        return 0;
+        return $result->hasFailures() ? 1 : 0;
     }
 }
