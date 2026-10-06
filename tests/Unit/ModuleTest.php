@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Marko\Clock\SystemClock;
 use Marko\Core\Command\Input;
 use Marko\Core\Command\Output;
 use Marko\Core\Container\BindingRegistry;
@@ -12,6 +13,7 @@ use Marko\Core\Path\ProjectPaths;
 use Marko\Scheduler\Command\RunScheduleCommand;
 use Marko\Scheduler\Command\ScheduleWorkCommand;
 use Marko\Scheduler\Schedule;
+use Psr\Clock\ClockInterface;
 
 /**
  * Build a container wired exactly as the Application does: the real scheduler
@@ -23,6 +25,8 @@ function bootSchedulerContainer(
 ): Container {
     $container = new Container();
     $container->instance(ProjectPaths::class, new ProjectPaths($basePath));
+    // marko/clock's module binds the system clock; the scheduler requires it.
+    $container->instance(ClockInterface::class, new SystemClock());
 
     $registry = new BindingRegistry($container);
     $schedulerManifest = new ManifestParser()->parse(dirname(__DIR__, 2));

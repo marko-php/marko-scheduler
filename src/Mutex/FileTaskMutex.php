@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Marko\Scheduler\Mutex;
 
-use Closure;
 use Marko\Scheduler\Exceptions\SchedulerException;
 use Marko\Scheduler\ScheduledTask;
+use Psr\Clock\ClockInterface;
 
 /**
  * Local file mutex for scheduled tasks.
@@ -23,12 +23,9 @@ class FileTaskMutex implements TaskMutexInterface
     /** @var array<string, resource> */
     private array $handles = [];
 
-    /**
-     * @param Closure(): int|null $clock Returns the current Unix timestamp; defaults to time()
-     */
     public function __construct(
         private readonly string $directory,
-        private readonly ?Closure $clock = null,
+        private readonly ClockInterface $clock,
     ) {}
 
     /**
@@ -142,7 +139,7 @@ class FileTaskMutex implements TaskMutexInterface
 
     private function now(): int
     {
-        return $this->clock !== null ? ($this->clock)() : time();
+        return $this->clock->now()->getTimestamp();
     }
 
     private function path(

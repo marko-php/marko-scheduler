@@ -10,18 +10,22 @@ use Marko\Scheduler\Command\ScheduleWorkCommand;
 use Marko\Scheduler\Mutex\FileTaskMutex;
 use Marko\Scheduler\Schedule;
 use Marko\Scheduler\ScheduleRunner;
+use Marko\Testing\Fake\FakeClock;
 
 beforeEach(function (): void {
     $this->schedule = new Schedule();
-    $this->now = new DateTimeImmutable('2026-10-05 12:00:30');
+    $this->clock = new FakeClock('2026-10-05 12:00:30');
     $this->sleeps = [];
     $this->onSleep = null;
     $this->command = new ScheduleWorkCommand(
-        new ScheduleRunner($this->schedule, new FileTaskMutex(sys_get_temp_dir() . '/marko-scheduler-unused')),
-        fn (): DateTimeImmutable => $this->now,
+        new ScheduleRunner(
+            $this->schedule,
+            new FileTaskMutex(sys_get_temp_dir() . '/marko-scheduler-unused', $this->clock),
+        ),
+        $this->clock,
         function (int $seconds): void {
             $this->sleeps[] = $seconds;
-            $this->now = $this->now->modify("+$seconds seconds");
+            $this->clock->travel("+$seconds seconds");
 
             if ($this->onSleep !== null) {
                 ($this->onSleep)();
@@ -53,7 +57,7 @@ it('sleeps until the next minute boundary before running', function (): void {
     $this->schedule->call(function () use (&$executed): void {
         $executed = true;
     })->everyMinute();
-    $this->now = new DateTimeImmutable('2026-10-05 12:00:45');
+    $this->clock->setNow('2026-10-05 12:00:45');
     $this->onSleep = fn () => $this->command->stop();
 
     $exitCode = ($this->work)();
@@ -66,7 +70,7 @@ it('sleeps until the next minute boundary before running', function (): void {
 it('runs due tasks once per minute boundary', function (): void {
     $runTimes = [];
     $this->schedule->call(function () use (&$runTimes): void {
-        $runTimes[] = $this->now->format('H:i:s');
+        $runTimes[] = $this->clock->now()->format('H:i:s');
 
         if (count($runTimes) === 3) {
             $this->command->stop();
@@ -101,7 +105,7 @@ it('waits for the following boundary when a run overruns the minute', function (
     $runs = 0;
     $this->schedule->call(function () use (&$runs): void {
         $runs++;
-        $this->now = $this->now->modify('+90 seconds');
+        $this->clock->travel('+90 seconds');
 
         if ($runs === 2) {
             $this->command->stop();

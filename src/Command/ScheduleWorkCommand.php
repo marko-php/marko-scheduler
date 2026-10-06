@@ -12,6 +12,7 @@ use Marko\Core\Command\Input;
 use Marko\Core\Command\Output;
 use Marko\Scheduler\Exceptions\SchedulerException;
 use Marko\Scheduler\ScheduleRunner;
+use Psr\Clock\ClockInterface;
 
 /**
  * Foreground scheduler loop for local development and containers without a cron daemon.
@@ -28,12 +29,11 @@ class ScheduleWorkCommand implements CommandInterface
     private bool $shouldStop = false;
 
     /**
-     * @param Closure(): DateTimeImmutable|null $clock Returns the current time; defaults to now
      * @param Closure(int): mixed|null $sleeper Sleeps for the given number of seconds; defaults to sleep()
      */
     public function __construct(
         private readonly ScheduleRunner $scheduleRunner,
-        private readonly ?Closure $clock = null,
+        private readonly ClockInterface $clock,
         private readonly ?Closure $sleeper = null,
     ) {}
 
@@ -50,10 +50,10 @@ class ScheduleWorkCommand implements CommandInterface
         $output->writeLine('Running scheduled tasks every minute. Press Ctrl+C to stop.');
 
         try {
-            $nextRun = $this->startOfNextMinute($this->now());
+            $nextRun = $this->startOfNextMinute($this->clock->now());
 
             while (!$this->shouldStop) {
-                $secondsUntilNextRun = $nextRun->getTimestamp() - $this->now()->getTimestamp();
+                $secondsUntilNextRun = $nextRun->getTimestamp() - $this->clock->now()->getTimestamp();
 
                 if ($secondsUntilNextRun > 0) {
                     $this->sleep($secondsUntilNextRun);
@@ -62,7 +62,7 @@ class ScheduleWorkCommand implements CommandInterface
                 }
 
                 $this->scheduleRunner->run($nextRun, $output);
-                $nextRun = $this->startOfNextMinute($this->now());
+                $nextRun = $this->startOfNextMinute($this->clock->now());
             }
         } finally {
             $this->restoreSignalHandlers($previousAsyncSignals);
@@ -79,11 +79,6 @@ class ScheduleWorkCommand implements CommandInterface
     public function stop(): void
     {
         $this->shouldStop = true;
-    }
-
-    private function now(): DateTimeImmutable
-    {
-        return $this->clock !== null ? ($this->clock)() : new DateTimeImmutable();
     }
 
     private function sleep(

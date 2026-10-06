@@ -9,11 +9,13 @@ use Marko\Scheduler\Mutex\TaskMutexInterface;
 use Marko\Scheduler\Schedule;
 use Marko\Scheduler\ScheduledTask;
 use Marko\Scheduler\ScheduleRunner;
+use Marko\Testing\Fake\FakeClock;
 
 beforeEach(function (): void {
     $this->mutexDirectory = sys_get_temp_dir() . '/marko-scheduler-runner-' . bin2hex(random_bytes(6));
     $this->schedule = new Schedule();
-    $this->mutex = new FileTaskMutex($this->mutexDirectory);
+    $this->clock = new FakeClock('2026-10-05 12:00:00');
+    $this->mutex = new FileTaskMutex($this->mutexDirectory, $this->clock);
     $this->runner = new ScheduleRunner($this->schedule, $this->mutex);
     $this->stream = fopen('php://memory', 'r+');
     $this->output = new Output($this->stream);
@@ -87,7 +89,7 @@ it('skips an overlapping task whose mutex is held', function (): void {
     $task = $this->schedule->call(function () use (&$executed): void {
         $executed = true;
     })->everyMinute()->description('Long import')->withoutOverlapping();
-    $otherProcess = new FileTaskMutex($this->mutexDirectory);
+    $otherProcess = new FileTaskMutex($this->mutexDirectory, $this->clock);
     $otherProcess->acquire($task, 3600);
 
     $result = $this->runner->run($this->now, $this->output);
@@ -101,7 +103,7 @@ it('skips an overlapping task whose mutex is held', function (): void {
 it('holds the mutex while an overlapping task runs and releases it afterwards', function (): void {
     $heldDuringRun = null;
     $task = $this->schedule->call(function () use (&$heldDuringRun, &$task): void {
-        $heldDuringRun = new FileTaskMutex($this->mutexDirectory)->exists($task);
+        $heldDuringRun = new FileTaskMutex($this->mutexDirectory, $this->clock)->exists($task);
     })->everyMinute()->description('Long import')->withoutOverlapping();
 
     $this->runner->run($this->now, $this->output);
@@ -159,7 +161,7 @@ it('releases the mutex when the task throws', function (): void {
 
     expect($result->failed)->toBe(1)
         ->and($this->mutex->exists($task))->toBeFalse()
-        ->and(new FileTaskMutex($this->mutexDirectory)->acquire($task, 60))->toBeTrue();
+        ->and(new FileTaskMutex($this->mutexDirectory, $this->clock)->acquire($task, 60))->toBeTrue();
 });
 
 it('throws before running anything when an overlapping task has no description', function (): void {

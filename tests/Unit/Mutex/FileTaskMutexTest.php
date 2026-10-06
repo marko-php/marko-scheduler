@@ -9,12 +9,13 @@ use Marko\Core\Path\ProjectPaths;
 use Marko\Scheduler\Mutex\FileTaskMutex;
 use Marko\Scheduler\Mutex\TaskMutexInterface;
 use Marko\Scheduler\ScheduledTask;
+use Marko\Testing\Fake\FakeClock;
+use Psr\Clock\ClockInterface;
 
 beforeEach(function (): void {
     $this->basePath = sys_get_temp_dir() . '/marko-scheduler-mutex-' . bin2hex(random_bytes(6));
     $this->directory = $this->basePath . '/storage/framework';
-    $this->now = 1_700_000_000;
-    $this->clock = fn (): int => $this->now;
+    $this->clock = new FakeClock('@1700000000');
     $this->task = new ScheduledTask(fn (): null => null)
         ->everyMinute()
         ->description('Import feed')
@@ -28,7 +29,7 @@ afterEach(function (): void {
 });
 
 it('implements TaskMutexInterface', function (): void {
-    expect(new FileTaskMutex($this->directory))->toBeInstanceOf(TaskMutexInterface::class);
+    expect(new FileTaskMutex($this->directory, $this->clock))->toBeInstanceOf(TaskMutexInterface::class);
 });
 
 it('acquires the mutex when no other holder exists', function (): void {
@@ -60,14 +61,36 @@ it('reclaims a mutex whose holder is past its expiry', function (): void {
     $third = new FileTaskMutex($this->directory, $this->clock);
 
     $holder->acquire($this->task, 60);
-    $this->now += 59;
+    $this->clock->travel('+59 seconds');
     $beforeExpiry = $contender->acquire($this->task, 60);
-    $this->now += 2;
+    $this->clock->travel('+2 seconds');
     $afterExpiry = $contender->acquire($this->task, 60);
 
     expect($beforeExpiry)->toBeFalse()
         ->and($afterExpiry)->toBeTrue()
         ->and($third->acquire($this->task, 60))->toBeFalse();
+});
+
+it('writes the mutex expiry from the injected clock', function (): void {
+    $mutex = new FileTaskMutex($this->directory, $this->clock);
+
+    $mutex->acquire($this->task, 90);
+
+    expect(file_get_contents($this->directory . '/' . $this->task->mutexName()))->toBe('1700000090');
+});
+
+it('treats a held mutex as stale once the injected clock passes its expiry', function (): void {
+    $holder = new FileTaskMutex($this->directory, $this->clock);
+    $observer = new FileTaskMutex($this->directory, $this->clock);
+
+    $holder->acquire($this->task, 60);
+    $this->clock->travel('+59 seconds');
+    $beforeExpiry = $observer->exists($this->task);
+    $this->clock->travel('+1 second');
+    $atExpiry = $observer->exists($this->task);
+
+    expect($beforeExpiry)->toBeTrue()
+        ->and($atExpiry)->toBeFalse();
 });
 
 it('allows acquiring again after release', function (): void {
@@ -87,7 +110,7 @@ it('reports whether the mutex exists', function (): void {
     $beforeAcquire = $observer->exists($this->task);
     $holder->acquire($this->task, 60);
     $whileHeld = $observer->exists($this->task);
-    $this->now += 61;
+    $this->clock->travel('+61 seconds');
     $afterExpiry = $observer->exists($this->task);
     $holder->release($this->task);
     $afterRelease = $observer->exists($this->task);
@@ -109,6 +132,7 @@ it('creates the mutex directory when missing', function (): void {
 it('binds TaskMutexInterface to FileTaskMutex under storage/framework in module.php', function (): void {
     $container = new Container();
     $container->instance(ProjectPaths::class, new ProjectPaths($this->basePath));
+    $container->instance(ClockInterface::class, $this->clock);
     new BindingRegistry($container)->registerModule(new ManifestParser()->parse(dirname(__DIR__, 3)));
 
     $mutex = $container->get(TaskMutexInterface::class);
